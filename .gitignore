@@ -1,0 +1,12 @@
+.ipynb_checkpoints/
+__pycache__/
+*.pyc
+*.log
+data/
+outputs/
+*.zip
+*.gz
+*.tar
+*.tar.gz
+*.pdf
+*.pptx
