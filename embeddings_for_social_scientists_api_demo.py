@@ -28,9 +28,15 @@ Optional topic-modeling section:
 
     pip install bertopic umap-learn hdbscan
 
-Set API keys in a local .env file or in your shell. Do not paste real keys into tracked code.
+Set API keys in one of three ways. Do not commit real keys to GitHub.
 
-Recommended local .env file, not committed to Git:
+Colab recommended: open the key icon in the left sidebar, add secrets named
+OPENAI_API_KEY and COHERE_API_KEY, and enable notebook access.
+
+Colab quick-and-dirty option: paste keys into COLAB_PASTE_KEYS below in your
+temporary notebook copy only.
+
+Local .env file, not committed to Git:
 
     OPENAI_API_KEY=sk-...
     COHERE_API_KEY=...
@@ -77,6 +83,20 @@ import pandas as pd
 
 
 Provider = Literal["openai", "cohere", "sentence-transformers"]
+
+
+# ---------------------------------------------------------------------------
+# Optional API-key helper for notebooks / Colab
+# ---------------------------------------------------------------------------
+# Best practice in Colab: use the left sidebar key icon (Secrets) and create
+# OPENAI_API_KEY and/or COHERE_API_KEY.
+#
+# If you really want to paste keys while teaching, paste them below in your
+# temporary Colab copy only. Do not commit real keys to GitHub.
+COLAB_PASTE_KEYS = {
+    "OPENAI_API_KEY": "",
+    "COHERE_API_KEY": "",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -319,6 +339,36 @@ def load_local_env(path: str = ".env") -> None:
         if key and value and key not in os.environ:
             os.environ[key] = value
 
+
+def load_colab_secrets() -> None:
+    """Load OPENAI_API_KEY / COHERE_API_KEY from Google Colab Secrets if available."""
+    try:
+        from google.colab import userdata
+    except Exception:
+        return
+    for key in ["OPENAI_API_KEY", "COHERE_API_KEY"]:
+        if key in os.environ:
+            continue
+        try:
+            value = userdata.get(key)
+        except Exception:
+            value = None
+        if value:
+            os.environ[key] = value
+
+
+def load_pasted_colab_keys() -> None:
+    """Load keys from COLAB_PASTE_KEYS if the user filled that teaching-only block."""
+    for key, value in COLAB_PASTE_KEYS.items():
+        if key not in os.environ and value and "your-" not in value:
+            os.environ[key] = value
+
+
+def load_api_keys() -> None:
+    """Load API keys from shell env, .env, Colab Secrets, or the temporary paste block."""
+    load_local_env()
+    load_colab_secrets()
+    load_pasted_colab_keys()
 
 def require_env(name: str) -> str:
     value = os.environ.get(name)
@@ -994,7 +1044,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    load_local_env()
+    load_api_keys()
     args = parse_args()
     client = EmbeddingClient(provider=args.provider, model=args.model)
 
