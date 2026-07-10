@@ -859,11 +859,11 @@ def example_parliamentary_scaling(client: EmbeddingClient, parliamentary_data: p
     left_right_axis = right_centroid - left_centroid
 
     df["rightward_score"] = projection_scores(speech_embeddings, left_right_axis)
-    df = df.sort_values("rightward_score")
+    display_df = df.sort_values("rightward_score")
 
     print("Negative scores are closer to the left/public-investment anchors.")
     print("Positive scores are closer to the right/market-discipline anchors.\n")
-    print(df[["speech_id", "speaker", "party", "party_family", "party_position", "rightward_score", "text"]].to_string(index=False))
+    print(display_df[["speech_id", "speaker", "party", "party_family", "party_position", "rightward_score", "text"]].to_string(index=False))
 
     explain(
         "What to discuss with students: the axis depends on the anchor texts, the corpus, "
