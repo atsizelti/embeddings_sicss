@@ -1,10 +1,19 @@
 ﻿# Embeddings for Social Scientists
 
+## Open in Colab
+
+Use the notebook version in Colab:
+
+[Open `embeddings_for_social_scientists_colab.ipynb` in Colab](https://colab.research.google.com/github/atsizelti/embeddings_sicss/blob/main/embeddings_for_social_scientists_colab.ipynb)
+
+Colab's GitHub browser usually finds `.ipynb` notebooks, not plain `.py` scripts. Use the notebook link above for teaching in Colab.
+
 Teaching materials for a SICSS-style lecture on embeddings for social scientists: basic word embeddings, word2vec, Kozlowski-style cultural dimensions, modern API embeddings, semantic search, clustering, topic modeling, parliamentary speech scaling, and model/worldview adaptation.
 
 ## Main File
 
-- `embeddings_for_social_scientists_api_demo.py`: the coding-session script. It implements the concepts from the slides in order, moving from simple word embeddings to parliamentary document embeddings and optional local fine-tuning.
+- `embeddings_for_social_scientists_colab.ipynb`: Colab-ready notebook for the live coding session.
+- `embeddings_for_social_scientists_api_demo.py`: plain Python script with the same lecture workflow.
 
 ## Coding Session Flow
 
@@ -131,6 +140,9 @@ See `lecture_flow_embeddings.md`. The practical recommendation is: keep slides c
 ## Main Lesson
 
 Embeddings are useful because they turn text into geometry: similarity, search, clustering, and scaling become vector operations. They are risky because those operations can confuse meaning with topic, corpus bias, genre, time period, and researcher-chosen anchors.
+
+
+
 
 
 
