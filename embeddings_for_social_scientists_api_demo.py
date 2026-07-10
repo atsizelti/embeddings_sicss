@@ -1,4 +1,4 @@
-﻿"""
+"""
 Embeddings for Social Scientists: API-first teaching demo
 =========================================================
 
@@ -544,6 +544,11 @@ class EmbeddingClient:
                 model=self.model or "embed-v4.0",
                 input_type="search_document",
             )
+        if self.provider == "sentence-transformers":
+            return embed_sentence_transformer(
+                texts,
+                model=self.model or "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+            )
         raise ValueError(f"Unknown provider: {self.provider}")
 
     def embed_query(self, text: str) -> np.ndarray:
@@ -555,6 +560,11 @@ class EmbeddingClient:
                 [text],
                 model=self.model or "embed-v4.0",
                 input_type="search_query",
+            )[0]
+        if self.provider == "sentence-transformers":
+            return embed_sentence_transformer(
+                [text],
+                model=self.model or "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
             )[0]
         raise ValueError(f"Unknown provider: {self.provider}")
 
