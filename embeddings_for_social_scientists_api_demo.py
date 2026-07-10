@@ -1,4 +1,4 @@
-"""
+﻿"""
 Embeddings for Social Scientists: API-first teaching demo
 =========================================================
 
@@ -630,7 +630,7 @@ def example_basic_cooccurrence_embeddings() -> None:
         "then reduce the co-occurrence matrix with SVD. This is a toy version of the idea that "
         "meaning is learned from neighboring words."
     )
-    tokenized = [tokenize(text) for text in CONTEXT_TOY_TEXTS]
+    tokenized = [tokenize_for_word2vec(text) for text in CONTEXT_TOY_TEXTS]
     vocab = sorted({word for doc in tokenized for word in doc})
     idx = {word: i for i, word in enumerate(vocab)}
     counts = np.zeros((len(vocab), len(vocab)))
@@ -1080,6 +1080,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 
 
 
