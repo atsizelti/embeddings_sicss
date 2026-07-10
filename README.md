@@ -1,27 +1,77 @@
-# embeddings_sicss
+﻿# Embeddings for Social Scientists
 
-Teaching materials for a SICSS-style lecture on using word embeddings to study cultural change in texts.
+Teaching materials for a SICSS-style lecture on embeddings for social scientists: classic word2vec, modern API embeddings, cosine similarity, semantic search, clustering, topic modeling, and scaling exercises.
 
-## Contents
+## Main File
 
-- `cultural_change_embeddings_colab.ipynb`: Colab-ready notebook with a lightweight classroom demo, optional historical newspaper data, and an optional GPU contextual-embedding track.
+- `embeddings_for_social_scientists_api_demo.py`: a slow, API-first teaching script that merges the earlier Kozlowski-style word2vec dimension example with modern OpenAI/Cohere embedding examples.
 
-## Student Tracks
+## What The Demo Covers
 
-1. **Simple machines / standard Colab CPU**
-   - Use the synthetic corpus section.
-   - Optionally run a small Chronicling America sample.
-   - Suitable for learning the method during class.
+1. Classic word2vec and Kozlowski-style cultural dimensions
+2. OpenAI and Cohere document embeddings
+3. Cosine similarity
+4. Semantic search
+5. Hierarchical clustering
+6. Parliamentary speech scaling with anchor texts
+7. Government-vs-opposition scaling from known groups
+8. Optional BERTopic
+9. Failure modes and validation problems
 
-2. **Better machines / Colab Pro / lab server**
-   - Increase the number of downloaded newspaper pages or use larger article-level corpora.
-   - Classical word2vec mostly needs CPU, RAM, and disk, not GPU.
+## Setup
 
-3. **GPU users / A100 / Colab Pro**
-   - Use the optional contextual embedding section.
-   - This embeds passages around target words with SentenceTransformers.
-   - GPU helps here because transformer inference is matrix-heavy.
+Install the base dependencies:
+
+```bash
+pip install openai cohere gensim numpy pandas scikit-learn scipy matplotlib
+```
+
+Optional BERTopic section:
+
+```bash
+pip install bertopic umap-learn hdbscan
+```
+
+Set API keys in your shell. Do not put real keys in the code.
+
+PowerShell:
+
+```powershell
+$env:OPENAI_API_KEY="sk-..."
+$env:COHERE_API_KEY="..."
+```
+
+macOS/Linux:
+
+```bash
+export OPENAI_API_KEY="sk-..."
+export COHERE_API_KEY="..."
+```
+
+## Run
+
+OpenAI:
+
+```bash
+python embeddings_for_social_scientists_api_demo.py --provider openai
+```
+
+Cohere:
+
+```bash
+python embeddings_for_social_scientists_api_demo.py --provider cohere
+```
+
+Optional BERTopic:
+
+```bash
+python embeddings_for_social_scientists_api_demo.py --provider openai --bertopic
+```
+
+## Lecture Flow
+
+See `lecture_flow_embeddings.md` for a suggested structure. The practical recommendation is: keep slides conceptually simple, then use the code as the main teaching device.
 
 ## Main Lesson
 
-Embeddings estimate meanings from patterns of word co-occurrence. When trained on newspapers, they estimate meanings in newspaper discourse, not society as a whole.
+Embeddings are useful because they turn text into geometry: similarity, search, clustering, and scaling all become vector operations. They are risky because those operations can confuse meaning with topic, corpus bias, genre, time period, and researcher-chosen anchors.
