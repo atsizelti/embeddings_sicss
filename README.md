@@ -1,35 +1,44 @@
 ﻿# Embeddings for Social Scientists
 
-Teaching materials for a SICSS-style lecture on embeddings for social scientists: classic word2vec, modern API embeddings, cosine similarity, semantic search, clustering, topic modeling, and scaling exercises.
+Teaching materials for a SICSS-style lecture on embeddings for social scientists: basic word embeddings, word2vec, Kozlowski-style cultural dimensions, modern API embeddings, semantic search, clustering, topic modeling, parliamentary speech scaling, and model/worldview adaptation.
 
 ## Main File
 
-- `embeddings_for_social_scientists_api_demo.py`: a slow, API-first teaching script that merges the earlier Kozlowski-style word2vec dimension example with modern OpenAI/Cohere embedding examples.
+- `embeddings_for_social_scientists_api_demo.py`: the coding-session script. It implements the concepts from the slides in order, moving from simple word embeddings to parliamentary document embeddings and optional local fine-tuning.
 
-## What The Demo Covers
+## Coding Session Flow
 
-1. Classic word2vec and Kozlowski-style cultural dimensions
-2. OpenAI and Cohere document embeddings
-3. Cosine similarity
-4. Semantic search
-5. Hierarchical clustering
-6. Parliamentary speech scaling with anchor texts
-7. Government-vs-opposition scaling from known groups
-8. Optional BERTopic
-9. Failure modes and validation problems
+1. Basic word embeddings from a co-occurrence matrix and SVD
+2. Classic word2vec and Kozlowski-style cultural dimensions
+3. OpenAI or Cohere sentence embeddings
+4. Cosine similarity and semantic search
+5. Document embeddings for parliamentary speeches
+6. Hierarchical clustering
+7. Ideological scaling with anchor texts
+8. Government-vs-opposition centroid scaling
+9. Optional BERTopic
+10. Nelimarkka-style worldview lens
+11. Optional local Sentence-Transformer fine-tuning on socialist vs market-oriented speeches
+12. Failure modes and validation
 
 ## Setup
 
-Install the base dependencies:
+Base dependencies:
 
 ```bash
 pip install openai cohere gensim numpy pandas scikit-learn scipy matplotlib
 ```
 
-Optional BERTopic section:
+Optional BERTopic:
 
 ```bash
 pip install bertopic umap-learn hdbscan
+```
+
+Optional local fine-tuning:
+
+```bash
+pip install sentence-transformers torch
 ```
 
 Set API keys in your shell. Do not put real keys in the code.
@@ -62,16 +71,43 @@ Cohere:
 python embeddings_for_social_scientists_api_demo.py --provider cohere
 ```
 
-Optional BERTopic:
+With BERTopic:
 
 ```bash
 python embeddings_for_social_scientists_api_demo.py --provider openai --bertopic
 ```
 
+With local fine-tuning:
+
+```bash
+python embeddings_for_social_scientists_api_demo.py --provider openai --fine-tune-local
+```
+
+## Parliamentary Data / ParlaMint
+
+The script works with built-in toy parliamentary speeches by default. For real data, pass a local CSV, JSONL, JSON, XML file, or a directory of ParlaMint-style XML files:
+
+```bash
+python embeddings_for_social_scientists_api_demo.py --provider openai --parliament-path data/parlamint_sample.csv --limit 2000
+```
+
+Recommended columns for a prepared CSV/JSONL extract:
+
+- `text`
+- `speech_id`
+- `speaker`
+- `party`
+- `party_family`
+- `party_position`
+- `date`
+- `country`
+
+The XML reader is intentionally lightweight for teaching. For research, prepare a clean CSV/Parquet extract from ParlaMint first, then run the embedding workflow.
+
 ## Lecture Flow
 
-See `lecture_flow_embeddings.md` for a suggested structure. The practical recommendation is: keep slides conceptually simple, then use the code as the main teaching device.
+See `lecture_flow_embeddings.md`. The practical recommendation is: keep slides conceptually simple, then use the code as the main teaching device.
 
 ## Main Lesson
 
-Embeddings are useful because they turn text into geometry: similarity, search, clustering, and scaling all become vector operations. They are risky because those operations can confuse meaning with topic, corpus bias, genre, time period, and researcher-chosen anchors.
+Embeddings are useful because they turn text into geometry: similarity, search, clustering, and scaling become vector operations. They are risky because those operations can confuse meaning with topic, corpus bias, genre, time period, and researcher-chosen anchors.

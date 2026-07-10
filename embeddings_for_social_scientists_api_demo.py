@@ -1,4 +1,4 @@
-﻿"""
+"""
 Embeddings for Social Scientists: API-first teaching demo
 =========================================================
 
@@ -58,7 +58,11 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
+import json
 import textwrap
+import xml.etree.ElementTree as ET
+from pathlib import Path
 from dataclasses import dataclass
 from typing import Iterable, Literal
 
@@ -108,54 +112,90 @@ SHORT_TEXTS = [
 
 PARLIAMENTARY_SPEECHES = [
     {
-        "speech_id": "GOV_01",
-        "speaker": "Government MP A",
-        "party_position": "government",
-        "text": "Our budget protects fiscal discipline while funding targeted support for families facing high prices.",
-    },
-    {
-        "speech_id": "GOV_02",
-        "speaker": "Government MP B",
-        "party_position": "government",
-        "text": "The reform package reduces red tape for firms, attracts investment, and keeps public finances stable.",
-    },
-    {
-        "speech_id": "GOV_03",
-        "speaker": "Government MP C",
-        "party_position": "government",
-        "text": "We are expanding infrastructure, supporting exporters, and maintaining a responsible path for debt.",
-    },
-    {
-        "speech_id": "OPP_01",
-        "speaker": "Opposition MP A",
+        "speech_id": "SOC_01",
+        "speaker": "Socialist MP A",
+        "party": "Socialist Party",
+        "party_family": "socialist",
         "party_position": "opposition",
-        "text": "This budget leaves workers behind, weakens public services, and ignores the housing crisis.",
+        "text": "Workers need stronger bargaining rights, public housing, and protection from rising rents.",
     },
     {
-        "speech_id": "OPP_02",
-        "speaker": "Opposition MP B",
+        "speech_id": "SOC_02",
+        "speaker": "Socialist MP B",
+        "party": "Socialist Party",
+        "party_family": "socialist",
         "party_position": "opposition",
-        "text": "People need stronger labor protections, fairer taxation, and serious investment in public hospitals.",
+        "text": "The budget should tax wealth, fund hospitals, and guarantee decent wages for every worker.",
     },
     {
-        "speech_id": "OPP_03",
-        "speaker": "Opposition MP C",
+        "speech_id": "SOC_03",
+        "speaker": "Socialist MP C",
+        "party": "Socialist Party",
+        "party_family": "socialist",
         "party_position": "opposition",
-        "text": "The government celebrates growth figures while families struggle with rent, food, and energy bills.",
+        "text": "Public investment and social ownership are needed to reduce inequality and empower labor.",
     },
     {
-        "speech_id": "NEW_01",
-        "speaker": "Unlabeled MP X",
-        "party_position": "unknown",
-        "text": "The country needs a credible industrial strategy with public investment and protection for workers.",
-    },
-    {
-        "speech_id": "NEW_02",
-        "speaker": "Unlabeled MP Y",
-        "party_position": "unknown",
+        "speech_id": "LIB_01",
+        "speaker": "Liberal MP A",
+        "party": "Liberal Party",
+        "party_family": "liberal",
+        "party_position": "government",
         "text": "Economic recovery depends on private investment, lower compliance costs, and stable public accounts.",
     },
+    {
+        "speech_id": "LIB_02",
+        "speaker": "Liberal MP B",
+        "party": "Liberal Party",
+        "party_family": "liberal",
+        "party_position": "government",
+        "text": "We support entrepreneurs by reducing red tape, encouraging exports, and keeping debt under control.",
+    },
+    {
+        "speech_id": "CON_01",
+        "speaker": "Conservative MP A",
+        "party": "Conservative Party",
+        "party_family": "conservative",
+        "party_position": "government",
+        "text": "National security requires border control, disciplined spending, and support for the armed forces.",
+    },
+    {
+        "speech_id": "GRN_01",
+        "speaker": "Green MP A",
+        "party": "Green Party",
+        "party_family": "green",
+        "party_position": "opposition",
+        "text": "Climate policy must combine renewable energy, public transport, and a just transition for workers.",
+    },
+    {
+        "speech_id": "UNK_01",
+        "speaker": "Unlabeled MP X",
+        "party": "Unknown",
+        "party_family": "unknown",
+        "party_position": "unknown",
+        "text": "The country needs an industrial strategy with public investment and stronger protections for workers.",
+    },
+    {
+        "speech_id": "UNK_02",
+        "speaker": "Unlabeled MP Y",
+        "party": "Unknown",
+        "party_family": "unknown",
+        "party_position": "unknown",
+        "text": "Growth requires business confidence, lower taxes, and predictable fiscal rules.",
+    },
 ]
+
+SOCIALIST_WORLDVIEW_ANCHORS = [
+    "worker solidarity, class struggle, exploitation, collective ownership, public control",
+    "labor power, capital accumulation, inequality, unions, social rights",
+]
+
+MARKET_WORLDVIEW_ANCHORS = [
+    "entrepreneurship, investment, business confidence, market incentives, competitiveness",
+    "private enterprise, deregulation, fiscal discipline, innovation, productivity",
+]
+
+OCCUPATION_TERMS = ["worker", "nurse", "teacher", "banker", "consultant", "entrepreneur", "landlord", "engineer"]
 
 LEFT_ANCHORS = [
     "workers rights, public hospitals, redistributive taxation, social housing, stronger welfare state",
@@ -165,6 +205,15 @@ LEFT_ANCHORS = [
 RIGHT_ANCHORS = [
     "lower taxes, private investment, fiscal discipline, deregulation, competitive markets",
     "business confidence, balanced budgets, entrepreneurship, smaller government, market incentives",
+]
+
+CONTEXT_TOY_TEXTS = [
+    "revolver honor loyalty brotherhood respect leader oath",
+    "weapon gift signals trust courage loyalty brotherhood honor",
+    "revolver craftsmanship collection heritage hunting tradition",
+    "engraved pistol collectors admire design craftsmanship history",
+    "revolver customs regulation export control decommission paperwork embassy",
+    "diplomatic gift creates legal compliance and customs paperwork",
 ]
 
 WORD2VEC_EARLY_TEXTS = [
@@ -291,6 +340,114 @@ def word2vec_projection_score(model, word: str, axis: np.ndarray) -> float:
     return float(l2_normalize(model.wv[word]) @ l2_normalize(axis))
 
 
+
+# ---------------------------------------------------------------------------
+# 2. Parliamentary data loading, including ParlaMint-style files
+# ---------------------------------------------------------------------------
+
+
+def load_parliamentary_data(path=None, limit=200):
+    """Load toy data or a local parliamentary corpus extract.
+
+    Recommended research path: convert ParlaMint XML to a clean CSV/Parquet file
+    with at least a text column and, ideally, party/speaker/date/country metadata.
+    For teaching, this function also handles simple ParlaMint-style XML directly.
+    """
+    if not path:
+        df = pd.DataFrame(PARLIAMENTARY_SPEECHES)
+        return df.head(limit) if limit else df
+
+    input_path = Path(path)
+    if not input_path.exists():
+        raise FileNotFoundError(f"Parliamentary data path does not exist: {input_path}")
+
+    if input_path.is_dir():
+        rows = []
+        for xml_path in sorted(input_path.rglob("*.xml")):
+            rows.extend(load_parlamint_xml_file(xml_path))
+            if limit and len(rows) >= limit:
+                break
+        return normalize_parliamentary_frame(pd.DataFrame(rows), limit=limit)
+
+    suffix = input_path.suffix.lower()
+    if suffix == ".csv":
+        return normalize_parliamentary_frame(pd.read_csv(input_path), limit=limit)
+    if suffix in {".jsonl", ".ndjson"}:
+        with input_path.open(encoding="utf-8") as f:
+            rows = [json.loads(line) for line in f if line.strip()]
+        return normalize_parliamentary_frame(pd.DataFrame(rows), limit=limit)
+    if suffix == ".json":
+        data = json.loads(input_path.read_text(encoding="utf-8"))
+        rows = data if isinstance(data, list) else data.get("data", data.get("records", []))
+        return normalize_parliamentary_frame(pd.DataFrame(rows), limit=limit)
+    if suffix == ".xml":
+        return normalize_parliamentary_frame(pd.DataFrame(load_parlamint_xml_file(input_path)), limit=limit)
+    raise ValueError("Supported formats: CSV, JSONL, JSON, XML, or a directory of XML files.")
+
+
+
+def normalize_parliamentary_frame(df, limit=200):
+    if df.empty:
+        raise ValueError("No usable speeches found in the parliamentary data.")
+    lower_columns = {col.lower(): col for col in df.columns}
+    column_map = {}
+    aliases = {
+        "text": ["text", "speech", "body", "content", "utterance"],
+        "speech_id": ["speech_id", "id", "u_id", "utterance_id"],
+        "speaker": ["speaker", "speaker_name", "who", "mp", "person"],
+        "party": ["party", "party_name", "political_party", "parliamentary_group"],
+        "party_family": ["party_family", "ideology", "orientation", "left_right"],
+        "party_position": ["party_position", "government_opposition", "role", "power"],
+        "date": ["date", "sitting_date"],
+        "country": ["country", "parliament", "corpus"],
+    }
+    for canonical, candidates in aliases.items():
+        for candidate in candidates:
+            if candidate in lower_columns:
+                column_map[lower_columns[candidate]] = canonical
+                break
+    df = df.rename(columns=column_map).copy()
+    if "text" not in df.columns:
+        raise ValueError("Parliamentary data needs a text/speech/body/content column.")
+    df["text"] = df["text"].fillna("").astype(str).str.replace(r"\s+", " ", regex=True).str.strip()
+    df = df[df["text"].str.len() > 30].copy()
+    for col in ["speech_id", "speaker", "party", "party_family", "party_position", "date", "country"]:
+        if col not in df.columns:
+            df[col] = "unknown"
+    if (df["speech_id"] == "unknown").all():
+        df["speech_id"] = [f"speech_{i:04d}" for i in range(len(df))]
+    cols = ["speech_id", "speaker", "party", "party_family", "party_position", "date", "country", "text"]
+    df = df[cols].reset_index(drop=True)
+    return df.head(limit) if limit else df
+
+
+
+def load_parlamint_xml_file(path):
+    rows = []
+    try:
+        root = ET.parse(path).getroot()
+    except ET.ParseError:
+        return rows
+    for elem in root.iter():
+        tag = elem.tag.split("}")[-1]
+        if tag != "u":
+            continue
+        text = " ".join(part.strip() for part in elem.itertext() if part and part.strip())
+        if len(text) < 30:
+            continue
+        rows.append({
+            "speech_id": elem.attrib.get("{http://www.w3.org/XML/1998/namespace}id", elem.attrib.get("id", "unknown")),
+            "speaker": elem.attrib.get("who", "unknown"),
+            "party": elem.attrib.get("ana", "unknown"),
+            "party_family": "unknown",
+            "party_position": "unknown",
+            "date": "unknown",
+            "country": Path(path).parent.name,
+            "text": text,
+        })
+    return rows
+
+
 # ---------------------------------------------------------------------------
 # 2. Embedding clients
 # ---------------------------------------------------------------------------
@@ -364,8 +521,37 @@ def embed_cohere(
 
 
 
+
+def example_basic_cooccurrence_embeddings() -> None:
+    section("1. Basic word embeddings: co-occurrence matrix + SVD")
+    explain(
+        "We start from the simplest implementation. Count which words occur near each other, "
+        "then reduce the co-occurrence matrix with SVD. This is a toy version of the idea that "
+        "meaning is learned from neighboring words."
+    )
+    tokenized = [tokenize(text) for text in CONTEXT_TOY_TEXTS]
+    vocab = sorted({word for doc in tokenized for word in doc})
+    idx = {word: i for i, word in enumerate(vocab)}
+    counts = np.zeros((len(vocab), len(vocab)))
+    for doc in tokenized:
+        for i, word in enumerate(doc):
+            for j in range(max(0, i - 2), min(len(doc), i + 3)):
+                if i != j:
+                    counts[idx[word], idx[doc[j]]] += 1
+    u, svals, vt = np.linalg.svd(counts, full_matrices=False)
+    coords = u[:, :2] * svals[:2]
+    for word in ["revolver", "honor", "craftsmanship", "customs", "regulation", "loyalty"]:
+        if word in idx:
+            x, y = coords[idx[word]]
+            print(f"  {word:15s} x={x: .3f} y={y: .3f}")
+    explain(
+        "This toy example implements the NATO-hook intuition: the same object is pulled toward "
+        "different semantic neighborhoods depending on the text around it."
+    )
+
+
 def example_classic_word2vec_dimensions() -> None:
-    section("1. Classic word2vec: Kozlowski-style cultural dimensions")
+    section("2. Classic word2vec: Kozlowski-style cultural dimensions")
     explain(
         "We start with the older static-embedding setup because it makes the geometry very "
         "clear. Train one word2vec model for an early corpus and another for a late corpus. "
@@ -436,7 +622,7 @@ def example_classic_word2vec_dimensions() -> None:
 
 
 def example_what_is_an_embedding(client: EmbeddingClient) -> tuple[pd.DataFrame, np.ndarray]:
-    section("2. Modern API embeddings: text becomes a vector")
+    section("3. Modern API embeddings: text becomes a vector")
     explain(
         "An embedding model turns text into a long list of numbers. The numbers are not "
         "directly interpretable one by one. What matters is geometry: texts with similar "
@@ -456,7 +642,7 @@ def example_what_is_an_embedding(client: EmbeddingClient) -> tuple[pd.DataFrame,
 
 
 def example_cosine_similarity(df: pd.DataFrame, embeddings: np.ndarray) -> None:
-    section("3. Cosine similarity")
+    section("4. Cosine similarity")
     explain(
         "Cosine similarity compares the angle between two vectors. It is usually more useful "
         "than raw Euclidean distance for embeddings because we care about direction: whether "
@@ -480,7 +666,7 @@ def example_cosine_similarity(df: pd.DataFrame, embeddings: np.ndarray) -> None:
 
 
 def example_semantic_search(client: EmbeddingClient, df: pd.DataFrame, embeddings: np.ndarray) -> None:
-    section("4. Semantic search")
+    section("5. Semantic search")
     explain(
         "In semantic search, we embed the query and compare it with embedded documents. "
         "The top results are not exact keyword matches; they are documents whose vectors "
@@ -504,7 +690,7 @@ def example_semantic_search(client: EmbeddingClient, df: pd.DataFrame, embedding
 
 
 def example_hierarchical_clustering(df: pd.DataFrame, embeddings: np.ndarray) -> None:
-    section("5. Hierarchical clustering")
+    section("6. Hierarchical clustering")
     explain(
         "Clustering uses embeddings to group texts without predefined labels. Here we use "
         "agglomerative hierarchical clustering: start with each text alone, then repeatedly "
@@ -541,8 +727,8 @@ def example_hierarchical_clustering(df: pd.DataFrame, embeddings: np.ndarray) ->
 
 
 
-def example_parliamentary_scaling(client: EmbeddingClient) -> tuple[pd.DataFrame, np.ndarray]:
-    section("6. Scaling parliamentary speeches")
+def example_parliamentary_scaling(client: EmbeddingClient, parliamentary_data: pd.DataFrame) -> tuple[pd.DataFrame, np.ndarray]:
+    section("7. Scaling parliamentary speeches")
     explain(
         "Scaling means placing documents on a substantively meaningful dimension. Here we "
         "make a simple left-right economic axis from anchor texts. This is not a replacement "
@@ -550,7 +736,7 @@ def example_parliamentary_scaling(client: EmbeddingClient) -> tuple[pd.DataFrame
         "speeches onto that direction."
     )
 
-    df = pd.DataFrame(PARLIAMENTARY_SPEECHES)
+    df = parliamentary_data.copy().reset_index(drop=True)
     speech_embeddings = client.embed_documents(df["text"].tolist())
     left_embeddings = client.embed_documents(LEFT_ANCHORS)
     right_embeddings = client.embed_documents(RIGHT_ANCHORS)
@@ -564,7 +750,7 @@ def example_parliamentary_scaling(client: EmbeddingClient) -> tuple[pd.DataFrame
 
     print("Negative scores are closer to the left/public-investment anchors.")
     print("Positive scores are closer to the right/market-discipline anchors.\n")
-    print(df[["speech_id", "speaker", "party_position", "rightward_score", "text"]].to_string(index=False))
+    print(df[["speech_id", "speaker", "party", "party_family", "party_position", "rightward_score", "text"]].to_string(index=False))
 
     explain(
         "What to discuss with students: the axis depends on the anchor texts, the corpus, "
@@ -576,7 +762,7 @@ def example_parliamentary_scaling(client: EmbeddingClient) -> tuple[pd.DataFrame
 
 
 def example_government_opposition_axis(df: pd.DataFrame, speech_embeddings: np.ndarray) -> None:
-    section("7. Scaling from known groups: government vs opposition")
+    section("8. Scaling from known groups: government vs opposition")
     explain(
         "Another common move is to use known groups as anchors. We average the government "
         "speeches, average the opposition speeches, subtract the centroids, and project all "
@@ -586,6 +772,9 @@ def example_government_opposition_axis(df: pd.DataFrame, speech_embeddings: np.n
 
     gov_idx = df.index[df["party_position"] == "government"].tolist()
     opp_idx = df.index[df["party_position"] == "opposition"].tolist()
+    if not gov_idx or not opp_idx:
+        print("Need both government and opposition speeches for this axis.")
+        return
     gov_centroid = l2_normalize(speech_embeddings[gov_idx]).mean(axis=0)
     opp_centroid = l2_normalize(speech_embeddings[opp_idx]).mean(axis=0)
     gov_opp_axis = gov_centroid - opp_centroid
@@ -598,7 +787,7 @@ def example_government_opposition_axis(df: pd.DataFrame, speech_embeddings: np.n
 
 
 def optional_bertopic(df: pd.DataFrame, embeddings: np.ndarray, run: bool) -> None:
-    section("8. Optional BERTopic")
+    section("9. Optional BERTopic")
     if not run:
         explain(
             "BERTopic is skipped by default because it requires extra packages. Conceptually, "
@@ -619,14 +808,107 @@ def optional_bertopic(df: pd.DataFrame, embeddings: np.ndarray, run: bool) -> No
     topics, probs = topic_model.fit_transform(docs, embeddings)
     result = df.copy()
     result["topic"] = topics
-    print(result[["id", "group", "topic", "text"]].to_string(index=False))
+    display_cols = [col for col in ["id", "speech_id", "party", "party_family", "topic", "text"] if col in result.columns]
+    print(result[display_cols].to_string(index=False))
     print("\nTopic summary:")
     print(topic_model.get_topic_info().to_string(index=False))
 
 
 
+
+def example_worldview_lens(client: EmbeddingClient, df: pd.DataFrame, embeddings: np.ndarray) -> None:
+    section("10. Nelimarkka-style worldview lens")
+    explain(
+        "A classroom version of the Nelimarkka argument is to stop treating the model as neutral. "
+        "Here we build a socialist-vs-market lens from anchor texts, then rank occupations and "
+        "speeches on that lens. This is not fine-tuning yet; it shows the worldview construct."
+    )
+    socialist_embeddings = client.embed_documents(SOCIALIST_WORLDVIEW_ANCHORS)
+    market_embeddings = client.embed_documents(MARKET_WORLDVIEW_ANCHORS)
+    socialist_centroid = l2_normalize(socialist_embeddings).mean(axis=0)
+    market_centroid = l2_normalize(market_embeddings).mean(axis=0)
+    socialist_market_axis = socialist_centroid - market_centroid
+
+    occupation_embeddings = client.embed_documents(OCCUPATION_TERMS)
+    occupation_scores = pd.DataFrame({
+        "term": OCCUPATION_TERMS,
+        "socialist_worldview_score": projection_scores(occupation_embeddings, socialist_market_axis),
+    }).sort_values("socialist_worldview_score", ascending=False)
+    print("Occupation terms ranked by socialist-market anchor dimension:")
+    print(occupation_scores.to_string(index=False))
+
+    scored = df.copy()
+    scored["socialist_worldview_score"] = projection_scores(embeddings, socialist_market_axis)
+    scored = scored.sort_values("socialist_worldview_score", ascending=False)
+    print("\nSpeeches ranked by the same dimension:")
+    print(scored[["speech_id", "party_family", "socialist_worldview_score", "text"]].to_string(index=False))
+
+
+
+def optional_sentence_transformer_finetuning(df: pd.DataFrame, run: bool) -> None:
+    section("11. Optional local fine-tuning: socialist-party domain adaptation")
+    if not run:
+        explain(
+            "Fine-tuning is skipped by default. APIs give embeddings; local Sentence-Transformers "
+            "let us update model weights. Run with --fine-tune-local to demonstrate a small "
+            "Nelimarkka-style domain/worldview adaptation using socialist party speeches."
+        )
+        return
+    try:
+        from sentence_transformers import InputExample, SentenceTransformer, losses
+        from torch.utils.data import DataLoader
+    except Exception as e:
+        print(f"Fine-tuning dependencies unavailable: {e}")
+        print("Install with: pip install sentence-transformers torch")
+        return
+
+    socialist = df[df["party_family"].str.contains("social", case=False, na=False)]["text"].tolist()
+    market = df[df["party_family"].str.contains("liberal|conservative", case=False, na=False)]["text"].tolist()
+    if len(socialist) < 2 or len(market) < 2:
+        print("Need at least two socialist and two liberal/conservative speeches for this demo.")
+        return
+
+    model_name = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    model = SentenceTransformer(model_name)
+    probes = [
+        "workers need collective bargaining and public investment",
+        "business confidence requires tax cuts and deregulation",
+        "the nurse and the factory worker deserve higher wages",
+        "the banker and consultant create investment opportunities",
+    ]
+    baseline = model.encode(probes + [SOCIALIST_WORLDVIEW_ANCHORS[0]], normalize_embeddings=True)
+    baseline_anchor = baseline[-1]
+
+    train_examples = []
+    for text in socialist:
+        train_examples.append(InputExample(texts=[text, SOCIALIST_WORLDVIEW_ANCHORS[0]], label=1.0))
+        train_examples.append(InputExample(texts=[text, MARKET_WORLDVIEW_ANCHORS[0]], label=0.0))
+    for text in market:
+        train_examples.append(InputExample(texts=[text, MARKET_WORLDVIEW_ANCHORS[0]], label=1.0))
+        train_examples.append(InputExample(texts=[text, SOCIALIST_WORLDVIEW_ANCHORS[0]], label=0.0))
+
+    loader = DataLoader(train_examples, shuffle=True, batch_size=4)
+    loss = losses.CosineSimilarityLoss(model)
+    model.fit(train_objectives=[(loader, loss)], epochs=1, warmup_steps=0, show_progress_bar=True)
+
+    adapted = model.encode(probes + [SOCIALIST_WORLDVIEW_ANCHORS[0]], normalize_embeddings=True)
+    adapted_anchor = adapted[-1]
+    rows = []
+    for i, probe in enumerate(probes):
+        rows.append({
+            "probe": probe,
+            "baseline_to_socialist_anchor": float(baseline[i] @ baseline_anchor),
+            "fine_tuned_to_socialist_anchor": float(adapted[i] @ adapted_anchor),
+        })
+    print(pd.DataFrame(rows).to_string(index=False))
+    explain(
+        "This is a teaching-scale fine-tuning demo, not a publishable design. For research, use "
+        "held-out validation, multiple seeds, comparison models, and explicit construct validation."
+    )
+
+
 def example_failure_modes() -> None:
-    section("9. Where embeddings break")
+    section("12. Where embeddings break")
     points = [
         "Similarity is not explanation. Two texts can be close because of topic, style, genre, or repeated phrases.",
         "Embeddings inherit biases from training data and from the corpus being analyzed.",
@@ -635,6 +917,8 @@ def example_failure_modes() -> None:
         "Historical text has OCR errors, spelling variation, and changing meanings.",
         "Clusters always exist mathematically, but not every cluster is substantively meaningful.",
         "API models may change over time; record provider, model name, date, preprocessing, and parameters.",
+        "For ParlaMint, chunking, metadata harmonization, and language/model choice are part of the method.",
+        "Fine-tuning can surface a worldview, but can also overfit or amplify researcher choices.",
     ]
     for p in points:
         print(f"- {p}")
@@ -651,6 +935,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--provider", choices=["openai", "cohere"], default="openai")
     parser.add_argument("--model", default=None, help="Optional model override")
     parser.add_argument("--bertopic", action="store_true", help="Run optional BERTopic section")
+    parser.add_argument("--parliament-path", default=None, help="CSV/JSONL/JSON/XML file or ParlaMint XML directory")
+    parser.add_argument("--limit", type=int, default=200, help="Maximum speeches to load from local parliamentary data")
+    parser.add_argument("--fine-tune-local", action="store_true", help="Run optional local Sentence-Transformer fine-tuning demo")
     return parser.parse_args()
 
 
@@ -661,19 +948,29 @@ def main() -> None:
 
     section("Embeddings for Social Scientists")
     explain(
-        "We will use a small set of political texts so the mechanics are visible. In real "
-        "research, the same operations apply to thousands or millions of documents: embed, "
-        "compare, search, cluster, scale, and validate."
+        "The slides introduced the concepts. This script implements them: word embeddings, "
+        "Kozlowski-style dimensions, sentence/document embeddings, parliamentary clustering, "
+        "semantic search, scaling, and Nelimarkka-style worldview adaptation."
     )
 
+    parliamentary_data = load_parliamentary_data(args.parliament_path, limit=args.limit)
+    print(f"Parliamentary data loaded: {len(parliamentary_data)} speeches")
+    if args.parliament_path:
+        print(f"Source: {args.parliament_path}")
+    else:
+        print("Source: built-in toy speeches. Use --parliament-path for ParlaMint or another corpus.")
+
+    example_basic_cooccurrence_embeddings()
     example_classic_word2vec_dimensions()
     df, embeddings = example_what_is_an_embedding(client)
     example_cosine_similarity(df, embeddings)
     example_semantic_search(client, df, embeddings)
     example_hierarchical_clustering(df, embeddings)
-    parliament_df, parliament_embeddings = example_parliamentary_scaling(client)
+    parliament_df, parliament_embeddings = example_parliamentary_scaling(client, parliamentary_data)
     example_government_opposition_axis(parliament_df.sort_index(), parliament_embeddings)
-    optional_bertopic(df, embeddings, run=args.bertopic)
+    optional_bertopic(parliament_df.rename(columns={"speech_id": "id"}), parliament_embeddings, run=args.bertopic)
+    example_worldview_lens(client, parliament_df, parliament_embeddings)
+    optional_sentence_transformer_finetuning(parliament_df, run=args.fine_tune_local)
     example_failure_modes()
 
 
