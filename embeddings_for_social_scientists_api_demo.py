@@ -85,6 +85,22 @@ import pandas as pd
 Provider = Literal["openai", "cohere", "sentence-transformers"]
 
 
+def sentence_transformer_runtime() -> tuple[str, int]:
+    try:
+        import torch
+        if torch.cuda.is_available():
+            gpu_name = torch.cuda.get_device_name(0)
+            default_batch_size = 256 if "A100" in gpu_name.upper() else 128
+            batch_size = int(os.getenv("ST_BATCH_SIZE", str(default_batch_size)))
+            print(f"Sentence-Transformers using CUDA GPU: {gpu_name}; batch_size={batch_size}")
+            return "cuda", batch_size
+    except Exception:
+        pass
+    batch_size = int(os.getenv("ST_BATCH_SIZE", "32"))
+    print(f"Sentence-Transformers using CPU; batch_size={batch_size}")
+    return "cpu", batch_size
+
+
 # ---------------------------------------------------------------------------
 # Optional API-key helper for notebooks / Colab
 # ---------------------------------------------------------------------------
@@ -584,7 +600,7 @@ def embed_openai(texts: list[str], model: str = "text-embedding-3-small") -> np.
 def embed_sentence_transformer(
     texts: list[str],
     model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-    batch_size: int = 32,
+    batch_size: int | None = None,
 ) -> np.ndarray:
     """Generate embeddings with an open Sentence-BERT/Sentence-Transformers model."""
     try:
@@ -595,10 +611,11 @@ def embed_sentence_transformer(
             "pip install sentence-transformers torch"
         ) from e
 
-    encoder = SentenceTransformer(model)
+    device, runtime_batch_size = sentence_transformer_runtime()
+    encoder = SentenceTransformer(model, device=device)
     return encoder.encode(
         texts,
-        batch_size=batch_size,
+        batch_size=batch_size or runtime_batch_size,
         show_progress_bar=False,
         convert_to_numpy=True,
         normalize_embeddings=False,
@@ -982,7 +999,8 @@ def optional_sentence_transformer_finetuning(df: pd.DataFrame, run: bool) -> Non
         return
 
     model_name = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-    model = SentenceTransformer(model_name)
+    device, runtime_batch_size = sentence_transformer_runtime()
+    model = SentenceTransformer(model_name, device=device)
     probes = [
         "workers need collective bargaining and public investment",
         "business confidence requires tax cuts and deregulation",
@@ -1000,7 +1018,7 @@ def optional_sentence_transformer_finetuning(df: pd.DataFrame, run: bool) -> Non
         train_examples.append(InputExample(texts=[text, MARKET_WORLDVIEW_ANCHORS[0]], label=1.0))
         train_examples.append(InputExample(texts=[text, SOCIALIST_WORLDVIEW_ANCHORS[0]], label=0.0))
 
-    loader = DataLoader(train_examples, shuffle=True, batch_size=4)
+    loader = DataLoader(train_examples, shuffle=True, batch_size=min(16, runtime_batch_size))
     loss = losses.CosineSimilarityLoss(model)
     model.fit(train_objectives=[(loader, loss)], epochs=1, warmup_steps=0, show_progress_bar=True)
 
@@ -1018,6 +1036,114 @@ def optional_sentence_transformer_finetuning(df: pd.DataFrame, run: bool) -> Non
         "This is a teaching-scale fine-tuning demo, not a publishable design. For research, use "
         "held-out validation, multiple seeds, comparison models, and explicit construct validation."
     )
+
+
+TURKISH_DATASET_CANDIDATES = [
+    "Dataset 1_clean.csv",
+    "Dataset 1.csv",
+    "/content/Dataset 1_clean.csv",
+    "/content/Dataset 1.csv",
+    "/content/drive/MyDrive/Dataset 1_clean.csv",
+    "/content/drive/MyDrive/Dataset 1.csv",
+]
+
+TURKISH_QUERY_SENTENCES = [
+    "Türkiye ile Birleşik Arap Emirlikleri ilişkileri yeniden tartışılıyor.",
+    "Ekonomi politikaları ve hayat pahalılığı seçmenlerin gündeminde.",
+    "Siyasi partiler mülteciler ve göç politikası hakkında açıklama yapıyor.",
+]
+
+
+def clean_turkish_sentence(text: object) -> str:
+    text = "" if pd.isna(text) else str(text)
+    text = re.sub(r"https?://\S+", "", text)
+    text = re.sub(r"@\w+", "", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def find_turkish_dataset(path: str | None = None) -> Path | None:
+    candidates = [path] if path else TURKISH_DATASET_CANDIDATES
+    for candidate in candidates:
+        if candidate and Path(candidate).exists():
+            return Path(candidate)
+    return None
+
+
+def load_turkish_sentence_data(path: str | None = None, limit: int = 24) -> pd.DataFrame:
+    dataset_path = find_turkish_dataset(path)
+    if dataset_path is None:
+        searched = path or ", ".join(TURKISH_DATASET_CANDIDATES)
+        raise FileNotFoundError(f"Could not find Turkish sentence dataset. Searched: {searched}")
+
+    try:
+        raw = pd.read_csv(dataset_path)
+    except Exception:
+        raw = pd.read_csv(dataset_path, skiprows=1)
+
+    if "text" not in raw.columns:
+        raise ValueError(f"{dataset_path} does not contain a 'text' column.")
+
+    df = raw.copy()
+    df["text"] = df["text"].map(clean_turkish_sentence)
+    df = df[df["text"].str.len() >= 40].drop_duplicates("text")
+
+    engagement_cols = [col for col in ["retweet_count", "reply_count", "like_count", "quote_count"] if col in df.columns]
+    if engagement_cols:
+        for col in engagement_cols:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+        df["engagement"] = df[engagement_cols].sum(axis=1)
+        df = df.sort_values("engagement", ascending=False)
+
+    display_cols = [col for col in ["id", "text", "created_at", "engagement"] if col in df.columns]
+    return df[display_cols].head(limit).reset_index(drop=True)
+
+
+def example_turkish_sentence_closeness(client: EmbeddingClient, path: str | None = None, limit: int = 24) -> None:
+    section("13. Turkish sentence embeddings: closeness in Dataset 1")
+    explain(
+        "This final example uses Turkish sentences from Dataset 1. We embed a small sample of "
+        "tweets, compare every sentence with cosine similarity, and then ask which dataset "
+        "sentences are closest to a few Turkish query sentences."
+    )
+    try:
+        df = load_turkish_sentence_data(path=path, limit=limit)
+    except Exception as e:
+        print(f"Turkish dataset example skipped: {e}")
+        print("Upload Dataset 1_clean.csv or Dataset 1.csv, or pass --turkish-sentence-path.")
+        return
+
+    print(f"Loaded {len(df)} Turkish sentences for comparison.")
+    print(df[["text"]].head(5).to_string(index=True))
+
+    embeddings = client.embed_documents(df["text"].tolist())
+    sims = cosine_matrix(embeddings)
+    np.fill_diagonal(sims, -np.inf)
+
+    pairs = []
+    for i in range(len(df)):
+        for j in range(i + 1, len(df)):
+            pairs.append({
+                "sentence_a": i,
+                "sentence_b": j,
+                "cosine_similarity": sims[i, j],
+            })
+    closest_pairs = pd.DataFrame(pairs).sort_values("cosine_similarity", ascending=False).head(8)
+
+    print("\nClosest sentence pairs in the Turkish sample:")
+    for row in closest_pairs.itertuples(index=False):
+        print(f"\n{row.sentence_a} <-> {row.sentence_b}  cosine={row.cosine_similarity:.3f}")
+        print(f"  A: {df.loc[row.sentence_a, 'text']}")
+        print(f"  B: {df.loc[row.sentence_b, 'text']}")
+
+    print("\nClosest dataset sentences to Turkish query sentences:")
+    for query in TURKISH_QUERY_SENTENCES:
+        query_embedding = client.embed_query(query)
+        scores = cosine_similarity_one_to_many(query_embedding, embeddings)
+        best_idx = int(scores.argmax())
+        print(f"\nQuery: {query}")
+        print(f"Closest cosine={scores[best_idx]:.3f}")
+        print(df.loc[best_idx, "text"])
 
 
 def example_failure_modes() -> None:
@@ -1051,6 +1177,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--parliament-path", default=None, help="CSV/JSONL/JSON/XML file or ParlaMint XML directory")
     parser.add_argument("--limit", type=int, default=200, help="Maximum speeches to load from local parliamentary data")
     parser.add_argument("--fine-tune-local", action="store_true", help="Run optional local Sentence-Transformer fine-tuning demo")
+    parser.add_argument("--turkish-sentence-path", default=None, help="Path to Dataset 1 CSV for Turkish sentence closeness demo")
+    parser.add_argument("--turkish-sentence-limit", type=int, default=24, help="Number of Turkish sentences to compare")
     return parser.parse_args()
 
 
@@ -1086,6 +1214,7 @@ def main() -> None:
     example_worldview_lens(client, parliament_df, parliament_embeddings)
     optional_sentence_transformer_finetuning(parliament_df, run=args.fine_tune_local)
     example_failure_modes()
+    example_turkish_sentence_closeness(client, path=args.turkish_sentence_path, limit=args.turkish_sentence_limit)
 
 
 if __name__ == "__main__":
