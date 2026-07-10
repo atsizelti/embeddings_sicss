@@ -790,12 +790,13 @@ def example_semantic_search(client: EmbeddingClient, df: pd.DataFrame, embedding
 
 
 
-def example_hierarchical_clustering(df: pd.DataFrame, embeddings: np.ndarray) -> None:
+def example_hierarchical_clustering(df: pd.DataFrame, embeddings: np.ndarray, title: str = "Hierarchical clustering") -> None:
     section("6. Hierarchical clustering")
     explain(
         "Clustering uses embeddings to group texts without predefined labels. Here we use "
         "agglomerative hierarchical clustering: start with each text alone, then repeatedly "
-        "merge the closest texts or clusters."
+        "merge the closest texts or clusters. In the notebook we first cluster short sentences, "
+        "then parliamentary speeches."
     )
 
     from scipy.cluster.hierarchy import linkage, leaves_list
@@ -806,26 +807,27 @@ def example_hierarchical_clustering(df: pd.DataFrame, embeddings: np.ndarray) ->
     tree = linkage(distances, method="average")
     order = leaves_list(tree)
 
+    id_col = "id" if "id" in df.columns else "speech_id"
+    group_col = "group" if "group" in df.columns else "party_family"
     print("Dendrogram leaf order from closest semantic groupings:")
     for idx in order:
-        print(f"  {df.loc[idx, 'id']:10s} group={df.loc[idx, 'group']:14s} text={df.loc[idx, 'text']}")
+        print(f"  {df.loc[idx, id_col]:10s} group={df.loc[idx, group_col]:14s} text={df.loc[idx, 'text']}")
 
     try:
         import matplotlib.pyplot as plt
         from scipy.cluster.hierarchy import dendrogram
 
         os.makedirs("outputs", exist_ok=True)
-        plt.figure(figsize=(9, 4))
-        dendrogram(tree, labels=df["id"].tolist(), leaf_rotation=30)
-        plt.title("Hierarchical clustering of short political texts")
+        plt.figure(figsize=(10, 4))
+        dendrogram(tree, labels=df[id_col].tolist(), leaf_rotation=30)
+        plt.title(title)
         plt.ylabel("Cosine distance")
         plt.tight_layout()
-        out = os.path.join("outputs", "hierarchical_clustering.png")
+        out = os.path.join("outputs", re.sub(r"[^a-z0-9]+", "_", title.lower()).strip("_") + ".png")
         plt.savefig(out, dpi=160)
         print(f"\nSaved dendrogram to {out}")
     except Exception as e:
         print(f"\nPlot skipped: {e}")
-
 
 
 def example_parliamentary_scaling(client: EmbeddingClient, parliamentary_data: pd.DataFrame) -> tuple[pd.DataFrame, np.ndarray]:
