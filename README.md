@@ -10,7 +10,7 @@ Teaching materials for a SICSS-style lecture on embeddings for social scientists
 
 1. Basic word embeddings from a co-occurrence matrix and SVD
 2. Classic word2vec and Kozlowski-style cultural dimensions
-3. OpenAI or Cohere sentence embeddings
+3. OpenAI, Cohere, or open Sentence-BERT sentence embeddings
 4. Cosine similarity and semantic search
 5. Document embeddings for parliamentary speeches
 6. Hierarchical clustering
@@ -26,7 +26,7 @@ Teaching materials for a SICSS-style lecture on embeddings for social scientists
 Base dependencies:
 
 ```bash
-pip install openai cohere gensim numpy pandas scikit-learn scipy matplotlib
+pip install openai cohere sentence-transformers gensim numpy pandas scikit-learn scipy matplotlib
 ```
 
 Optional BERTopic:
@@ -41,20 +41,34 @@ Optional local fine-tuning:
 pip install sentence-transformers torch
 ```
 
-Set API keys in your shell. Do not put real keys in the code.
+Set API keys in a local `.env` file. Do not put real keys in tracked code.
 
-PowerShell:
+Copy the template:
+
+```bash
+cp .env.example .env
+```
+
+On Windows PowerShell, if `cp` is not available:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Then open `.env` and paste your real keys:
+
+```text
+OPENAI_API_KEY=sk-your-real-openai-key
+COHERE_API_KEY=your-real-cohere-key
+```
+
+The script loads `.env` automatically. The `.env` file is ignored by Git.
+
+Shell variables also work if you prefer them:
 
 ```powershell
 $env:OPENAI_API_KEY="sk-..."
 $env:COHERE_API_KEY="..."
-```
-
-macOS/Linux:
-
-```bash
-export OPENAI_API_KEY="sk-..."
-export COHERE_API_KEY="..."
 ```
 
 ## Run
@@ -111,3 +125,5 @@ See `lecture_flow_embeddings.md`. The practical recommendation is: keep slides c
 ## Main Lesson
 
 Embeddings are useful because they turn text into geometry: similarity, search, clustering, and scaling become vector operations. They are risky because those operations can confuse meaning with topic, corpus bias, genre, time period, and researcher-chosen anchors.
+
+

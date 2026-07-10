@@ -10,7 +10,7 @@ What it covers
 --------------
 1. Classic word2vec and Kozlowski-style semantic dimensions.
 2. What a modern embedding is: text -> numeric vector.
-3. OpenAI and Cohere embedding APIs.
+3. OpenAI, Cohere, and open Sentence-BERT embeddings.
 4. Cosine similarity.
 5. Semantic search.
 6. Hierarchical clustering.
@@ -22,20 +22,25 @@ Before class
 ------------
 Install dependencies:
 
-    pip install openai cohere gensim numpy pandas scikit-learn scipy matplotlib
+    pip install openai cohere sentence-transformers gensim numpy pandas scikit-learn scipy matplotlib
 
 Optional topic-modeling section:
 
     pip install bertopic umap-learn hdbscan
 
-Set API keys in your shell. Do not paste real keys into the script.
+Set API keys in a local .env file or in your shell. Do not paste real keys into tracked code.
 
-PowerShell:
+Recommended local .env file, not committed to Git:
+
+    OPENAI_API_KEY=sk-...
+    COHERE_API_KEY=...
+
+PowerShell alternative:
 
     $env:OPENAI_API_KEY="sk-..."
     $env:COHERE_API_KEY="..."
 
-macOS/Linux:
+macOS/Linux alternative:
 
     export OPENAI_API_KEY="sk-..."
     export COHERE_API_KEY="..."
@@ -44,6 +49,7 @@ Run examples:
 
     python embeddings_for_social_scientists_api_demo.py --provider openai
     python embeddings_for_social_scientists_api_demo.py --provider cohere
+    python embeddings_for_social_scientists_api_demo.py --provider sentence-transformers
     python embeddings_for_social_scientists_api_demo.py --provider openai --bertopic
 
 Notes for the instructor
@@ -70,7 +76,7 @@ import numpy as np
 import pandas as pd
 
 
-Provider = Literal["openai", "cohere"]
+Provider = Literal["openai", "cohere", "sentence-transformers"]
 
 
 # ---------------------------------------------------------------------------
@@ -294,6 +300,26 @@ def projection_scores(embeddings: np.ndarray, axis: np.ndarray) -> np.ndarray:
 
 
 
+def load_local_env(path: str = ".env") -> None:
+    """Load simple KEY=VALUE lines from a local .env file if present.
+
+    This avoids putting API keys in tracked Python code. Existing shell
+    environment variables win over values in .env.
+    """
+    env_path = Path(path)
+    if not env_path.exists():
+        return
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip("\'").strip('"')
+        if key and value and key not in os.environ:
+            os.environ[key] = value
+
+
 def require_env(name: str) -> str:
     value = os.environ.get(name)
     if not value:
@@ -492,6 +518,31 @@ def embed_openai(texts: list[str], model: str = "text-embedding-3-small") -> np.
     response = client.embeddings.create(model=model, input=texts)
     vectors = [item.embedding for item in response.data]
     return np.asarray(vectors, dtype=float)
+
+
+
+def embed_sentence_transformer(
+    texts: list[str],
+    model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    batch_size: int = 32,
+) -> np.ndarray:
+    """Generate embeddings with an open Sentence-BERT/Sentence-Transformers model."""
+    try:
+        from sentence_transformers import SentenceTransformer
+    except Exception as e:
+        raise RuntimeError(
+            "Sentence-Transformers is not installed. Install with: "
+            "pip install sentence-transformers torch"
+        ) from e
+
+    encoder = SentenceTransformer(model)
+    return encoder.encode(
+        texts,
+        batch_size=batch_size,
+        show_progress_bar=False,
+        convert_to_numpy=True,
+        normalize_embeddings=False,
+    ).astype(float)
 
 
 
@@ -932,7 +983,7 @@ def example_failure_modes() -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="API-first embeddings lecture demo for social scientists")
-    parser.add_argument("--provider", choices=["openai", "cohere"], default="openai")
+    parser.add_argument("--provider", choices=["openai", "cohere", "sentence-transformers"], default="openai")
     parser.add_argument("--model", default=None, help="Optional model override")
     parser.add_argument("--bertopic", action="store_true", help="Run optional BERTopic section")
     parser.add_argument("--parliament-path", default=None, help="CSV/JSONL/JSON/XML file or ParlaMint XML directory")
@@ -943,13 +994,14 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    load_local_env()
     args = parse_args()
     client = EmbeddingClient(provider=args.provider, model=args.model)
 
     section("Embeddings for Social Scientists")
     explain(
         "The slides introduced the concepts. This script implements them: word embeddings, "
-        "Kozlowski-style dimensions, sentence/document embeddings, parliamentary clustering, "
+        "Kozlowski-style dimensions, OpenAI/Cohere/Sentence-BERT embeddings, parliamentary clustering, "
         "semantic search, scaling, and Nelimarkka-style worldview adaptation."
     )
 
